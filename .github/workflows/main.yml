@@ -1,30 +1,41 @@
+
 name: docker-compose-actions-workflow
+
 on: push
+
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Generate a token
-        id: generate-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
+
       - name: Build the stack
-        run: docker compose up -d
-      - name: Check if docker-compose has the service 'web'
-        run: docker compose ps --services | grep web
-      - name: Check if docker-compose has the service 'redis'
-        run: docker compose ps --services | grep redis
+        run: docker compose up -d --build
+
+      - name: Check web service
+        run: docker compose ps --services | grep -x web
+
+      - name: Check redis service
+        run: docker compose ps --services | grep -x redis
+
+      - name: Wait for Flask
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8080; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
       - name: Test containers functionality
         uses: cypress-io/github-action@v6
-        env:
-          CYPRESS_BASE_URL: http://localhost:8080
         with:
           working-directory: ./.github/tests
-      - name: Final Step
         env:
-          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
-        run: |
-          gh repo edit $GITHUB_REPOSITORY --visibility private --accept-visibility-change-consequences
+          CYPRESS_BASE_URL: http://localhost:8080
+
+      - name: Stop containers
+        if: always()
+        run: docker compose down
